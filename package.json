@@ -1,0 +1,21 @@
+{
+  "name": "feed-printer",
+  "version": "1.0.0",
+  "description": "Print google rss feeds to a printer",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Ross Kelly",
+  "license": "ISC",
+  "dependencies": {
+    "@postlight/mercury-parser": "^2.1.1",
+    "escpos": "^2.5.0",
+    "jsdom": "^13.2.0",
+    "lodash": "^4.17.14",
+    "pubsubhubbub": "^0.4.1",
+    "random-ua": "0.0.6",
+    "rss-parser": "^3.7.2",
+    "semistandard": "^13.0.1"
+  }
+}
