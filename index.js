@@ -141,16 +141,20 @@ const checkFeed = () => {
     });
 };
 
-if (process.argv[2]) {
-  console.log('replaying result...');
-  const article = articlesFromDisk[process.argv[2]].article;
-  parsePage(url.parse(article.link, true).query.url, article)
-    .then((res) => {
-      console.log(res);
-    }).catch(e => {
-      console.log(e);
-    });
-} else {
-  // check the rss feed erry minute
-  checkFeed().then(() => setInterval(checkFeed, 60000));
-}
+module.exports = {
+  start (articles) {
+    if (process.argv[2]) {
+      console.log('replaying result...');
+      const article = articlesFromDisk[process.argv[2]].article;
+      parsePage(url.parse(article.link, true).query.url, article)
+        .then((res) => {
+          console.log(res);
+        }).catch(e => {
+          console.log(e);
+        });
+    } else {
+      // check the rss feed erry minute
+      checkFeed().then(() => setInterval(checkFeed, 60000));
+    }
+  }
+};
