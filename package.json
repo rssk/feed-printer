@@ -13,9 +13,11 @@
     "escpos": "git+https://github.com/rssk/node-escpos.git",
     "jsdom": "^13.2.0",
     "lodash": "^4.17.14",
+    "moment": "^2.24.0",
     "pubsubhubbub": "^0.4.1",
     "random-ua": "0.0.6",
     "rss-parser": "^3.7.2",
-    "semistandard": "^13.0.1"
+    "semistandard": "^13.0.1",
+    "string-similarity": "^3.0.0"
   }
 }

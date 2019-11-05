@@ -6,35 +6,24 @@ const url = require('url');
 const _ = require('lodash');
 const pify = require('util').promisify;
 const writeFile = pify(require('fs').writeFile);
-const path = require('path');
+const readFile = pify(require('fs').readFile);
 const randomUA = require('random-ua');
-const config = require('./config.json');
-
-let articlesFromDisk;
-try {
-  articlesFromDisk = require('./articles.json');
-} catch (e) {
-  articlesFromDisk = {};
-}
-
-const parser = new Parser();
-const strictMatch = new RegExp(`[^?.!:; \\s]*[a-z ']*${config.matchPhrase}[^?.!;]*[?.!;]["']?`, 'ig');
-const coarseMatch = new RegExp(`[^?.!:; \\s]*[a-z ']*${config.matchPhrase}[^?.!;]*`, 'ig');
-const articles = Object.assign({}, articlesFromDisk);
-const sessionUA = randomUA.generate();
+const defaultConf = require('./config.json');
 const escpos = require('escpos');
+const moment = require('moment');
+const EventEmitter = require('events');
+var stringSim = require('string-similarity');
 
-const device = new escpos.USB();
-const printer = new escpos.Printer(device);
-
-const parsePage = (url, item) => {
+const parsePage = (url, item, articles, config) => {
+  const strictMatch = new RegExp(`[^?.!:; \\s]*[a-z ']*${config.matchPhrase} [^?.!;]*[?.!;]["']?`, 'ig');
+  const coarseMatch = new RegExp(`[^?.!:; \\s]*[a-z ']*${config.matchPhrase} [^?.!;]*`, 'ig');
+  const sessionUA = randomUA.generate();
   // see if we have anything from the google supplied title
   const titleMatch = item.title.replace(/<b>|<\/b>/gi, '').match(strictMatch) ||
     item.title.replace(/<b>|<\/b>/gi, '').match(coarseMatch);
   let googleTitle;
 
   if (titleMatch) {
-    // googleTitle = _.upperFirst(titleMatch[0].trim().toLowerCase()).replace(' i ', ' I ');
     googleTitle = titleMatch[0].trim();
   }
 
@@ -53,108 +42,166 @@ const parsePage = (url, item) => {
       content || []
     ).reduce((memo, match) => {
       if (match.length < 110) {
-        // match.search(/[^a-zA-Z\d\s?.!:;,'"$]/g) === -1) {
-        // memo.push(_.upperFirst(match.trim().toLowerCase()).replace(' i ', ' I '));
-        if (match.match(/^['"]|['"]$/ig) && match.match(/^['"]|['"]$/ig).length === 1) {
-          memo.push(match.replace(/^['"]|['"]$/ig, ''));
+        if (match.match(/^['"“”‘’]|['"“”‘’]$/ig) && match.match(/^['"“”‘’]|['"“”‘’]$/ig).length === 1) {
+          match = match.replace(/^['"“”‘’]|['"“”‘’]$/ig, '').trim();
+          if (memo.every((elem) => { return stringSim.compareTwoStrings(elem, match) < 0.9; })) memo.push(match);
         } else {
-          if (!memo.includes(match.trim())) {
-            memo.push(match.trim());
-          }
+          match = match.trim();
+          if (memo.every((elem) => { return stringSim.compareTwoStrings(elem, match) < 0.9; })) memo.push(match);
         }
       }
       return memo;
     }, []);
     if (googleTitle && !matchArr.find((elem) => {
-      return elem.includes(googleTitle.replace(/[?.!:;,]/, ''));
+      return elem.includes(googleTitle.replace(/[?.!:;,\n]/, ''));
     }) &&
-    googleTitle.length < 110 && googleTitle.search(/[^a-zA-Z\d\s?.!:;,'"$]/g) === -1
+    googleTitle.length < 110 && googleTitle.search(/[^a-zA-Z\d\s?.!:;,'"“”‘’$]/g) === -1
     ) {
       matchArr.push(googleTitle);
     }
-    articles[item.id] = { article: item, matches: matchArr };
-    return { url: item.link, id: item.id, matches: matchArr };
+    // articles[item.id] = { article: item, matches: matchArr };
+    return { url: item.link, id: item.id, matches: matchArr, date: item.isoDate };
   })
     .catch((err) => {
-      articles[item.id] = { article: item, error: err.message };
+      // console.error(JSON.stringify({ article: item, error: err.message }));
       if (googleTitle &&
-        googleTitle.length < 110 && googleTitle.search(/[^a-zA-Z\d\s?.!:;,'"$]/g) === -1
+        googleTitle.length < 110 && googleTitle.search(/[^a-zA-Z\d\s?.!:;,'"“”‘’$]/g) === -1
       ) {
         // our crawler cant access, but we have something from goog
-        return { url: item.link, id: item.id, matches: [googleTitle] };
+        return { url: item.link, id: item.id, matches: [googleTitle], date: item.isoDate, error: err.message };
       }
       throw Object.assign({}, err, { id: item.id, url: item.link });
     });
 };
-const checkFeed = () => {
+const checkFeed = (articles, dbPath, config, dryRun) => {
+  const parser = new Parser();
   return parser.parseURL(config.feedURL)
     .then((feed) => {
       const promArr = [];
       feed.items.forEach((item) => {
         if (!articles[item.id]) {
-          promArr.push(parsePage(url.parse(item.link, true).query.url, item));
+          promArr.push(parsePage(url.parse(item.link, true).query.url, item, articles, config));
         }
       });
       return Promise.all(promArr.map(p => p.catch(e => e)));
     }).then((articleResults) => {
-      if (articleResults) {
-        return new Promise(function (resolve, reject) {
-          device.open(() => {
-            resolve(printer);
-          });
-        })
-          .then((printer) => {
-            console.log(`Printing ${articleResults.length} articles....`);
-            articleResults.forEach((article) => {
-              if (article.matches && article.matches.length !== 0) {
-                article.matches.forEach(match => {
-                  printer.font('a').text(match);
-                });
-              }
+      // do pruning
+      articles = Object.assign(articles, articleResults.reduce((memo, article) => {
+        memo[article.id] = article; return memo;
+      }, {}));
+      if (articleResults && !dryRun) {
+      } else {
+        articleResults.forEach((article) => {
+          if (article.matches && article.matches.length !== 0) {
+            article.matches.forEach(match => {
+              console.log(match);
             });
-            return new Promise(function (resolve, reject) {
-              printer.close(() => resolve());
-            });
-          }).then(() => {
-            console.log('Done printing, writing to DB');
-            return writeFile(path.join('.', 'articles.json'), JSON.stringify(articles));
-          });
-        // const htmlBody = articleResults.reduce((memo, result) => {
-        //   if (result.matches && result.matches.length !== 0) {
-        // return memo.concat(`<h2>Article:</h2> ${result.url}<h3>ID: ${result.id}</h3>\r\n<h3>Matches:</h3><b>${result.matches.join('<br>')}</b><br><br>`);
-        // }
-        // console.log('failed /*******************/');
-        // console.log(result.id || '');
-        // console.log(result.url || '');
-        // console.log(result.matches || '');
-        // console.log(result.name || '');
-        //   return memo;
-        // }, '');
-        // if (htmlBody) {
-        //   console.log('sending mail');
-        //   return transporter.sendMail(mailOptions)
-        //     .then(() => writeFile(path.join('.', 'articles.json'), JSON.stringify(articles)));
-        // }
-        // console.log('no valid matches, writing db');
-        // console.log(articles);
+          }
+        });
       }
+      console.log('Done printing, writing to DB');
+      return writeFile(dbPath, JSON.stringify(articles, null, 2));
     });
 };
 
 module.exports = {
-  start (articles) {
-    if (process.argv[2]) {
-      console.log('replaying result...');
-      const article = articlesFromDisk[process.argv[2]].article;
-      parsePage(url.parse(article.link, true).query.url, article)
-        .then((res) => {
-          console.log(res);
-        }).catch(e => {
-          console.log(e);
-        });
-    } else {
-      // check the rss feed erry minute
-      checkFeed().then(() => setInterval(checkFeed, 60000));
-    }
+  start (dbPath, dryRun, inputConfig) {
+    const config = Object.assign({}, defaultConf, inputConfig);
+    return readFile(dbPath, { flag: 'a+' })
+      .then((articleDB) => {
+        let articles = {};
+        if (articleDB) {
+          try {
+            articles = JSON.parse(articleDB);
+          } catch (e) {}
+        }
+        if (process.argv[2]) {
+          console.log('replaying result...');
+          const article = articles[process.argv[2]];
+          if (article) {
+            return parsePage(url.parse(article.url, true).query.url, {
+              title: '',
+              link: article.url,
+              id: article.id,
+              isoDate: article.date
+            }, article, config)
+              .then((res) => {
+                console.log(res);
+              });
+          }
+          console.error('No such article stored');
+        } else {
+          const printEmitter = new EventEmitter();
+          if (!dryRun) {
+            const device = new escpos.USB();
+            const printer = new escpos.Printer(device);
+            return new Promise(function (resolve, reject) {
+              device.open(() => {
+                resolve(printer);
+              });
+            })
+              .then((printer) => {
+                let printed = [];
+                const print = () => {
+                  const randPrintTime = config.printInterval * 60 +
+                    Math.floor(config.printInterval * 60 * (Math.random() * 2 - 1) / 10);
+
+                  setTimeout(() => {
+                    // const p = articles;
+                    const timeConf = config.fromTimeAgo.split(' ');
+                    const diffTime = moment().subtract(timeConf[0], timeConf[1]);
+                    const articleIds = Object.keys(articles);
+                    console.log(articleIds.length);
+                    let i = 0;
+                    let article;
+                    if (articleIds.every(elem => printed.includes(elem))) printed = [];
+                    while (i < articleIds.length) {
+                      if (!printed.includes(articleIds[i]) &&
+                        articles[articleIds[i]].matches &&
+                        articles[articleIds[i]].matches.length !== 0 &&
+                        moment(articles[articleIds[i]].date).isAfter(diffTime)
+                      ) {
+                        article = articles[articleIds[i]];
+                        printed.push(articleIds[i]);
+                        break;
+                      } else {
+                        printed.push(articleIds[i]);
+                      }
+                      i += 1;
+                    }
+                    if (article) {
+                      console.log(`Printing article....`);
+                      article.matches.forEach(match => {
+                        // printer.font('a').text(match);
+                        console.log(match);
+                      });
+                      // printer.close(() => printEmitter.emit('print'));
+                      printEmitter.emit('print');
+                    } else {
+                      printEmitter.emit('print');
+                    }
+                  }, randPrintTime);
+                };
+                printEmitter.on('print', () => {
+                  // stack safety
+                  process.nextTick(print);
+                });
+                print();
+              });
+          }
+          // check the rss feed erry minute
+          return checkFeed(articles, dbPath, config, dryRun).then(() => {
+            return new Promise((resolve, reject) => {
+              const interval = setInterval(() => {
+                checkFeed(articles, dbPath, config, dryRun)
+                  .catch((e) => {
+                    clearInterval(interval);
+                    reject(e);
+                  });
+              }, 60000);
+            });
+          });
+        }
+      });
   }
 };

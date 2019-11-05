@@ -1,4 +1,6 @@
 {
   "feedURL": "https://www.google.com/alerts/feeds/06514006005409211936/12675675721753201315",
-  "matchPhrase": "should i"
+  "matchPhrase": "should i",
+  "fromTimeAgo": "2 week",
+  "printInterval": "1"
 }
