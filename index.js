@@ -14,6 +14,8 @@ const moment = require('moment');
 const EventEmitter = require('events');
 var stringSim = require('string-similarity');
 
+const saveEmitter = new EventEmitter();
+
 const parsePage = (url, item, articles, config) => {
   const strictMatch = new RegExp(`[^?.!:; \\s]*[a-z ']*${config.matchPhrase} [^?.!;]*[?.!;]["']?`, 'ig');
   const coarseMatch = new RegExp(`[^?.!:; \\s]*[a-z ']*${config.matchPhrase} [^?.!;]*`, 'ig');
@@ -73,7 +75,7 @@ const parsePage = (url, item, articles, config) => {
       throw Object.assign({}, err, { id: item.id, url: item.link });
     });
 };
-const checkFeed = (articles, dbPath, config, dryRun) => {
+const checkFeed = (articles, dbPath, config) => {
   const parser = new Parser();
   return parser.parseURL(config.feedURL)
     .then((feed) => {
@@ -89,23 +91,18 @@ const checkFeed = (articles, dbPath, config, dryRun) => {
       articles = Object.assign(articles, articleResults.reduce((memo, article) => {
         memo[article.id] = article; return memo;
       }, {}));
-      if (articleResults && !dryRun) {
-      } else {
-        articleResults.forEach((article) => {
-          if (article.matches && article.matches.length !== 0) {
-            article.matches.forEach(match => {
-              console.log(match);
-            });
-          }
+      console.log('Saving articles');
+      saveEmitter.emit('saving');
+      return new Promise(resolve => setTimeout(resolve, 2000))
+        .then(() => {
+          return writeFile(dbPath, JSON.stringify(articles, null, 2))
+            .then(() => saveEmitter.emit('saved'));
         });
-      }
-      console.log('Done printing, writing to DB');
-      return writeFile(dbPath, JSON.stringify(articles, null, 2));
     });
 };
 
 module.exports = {
-  start (dbPath, dryRun, inputConfig) {
+  start (dbPath, inputConfig) {
     const config = Object.assign({}, defaultConf, inputConfig);
     return readFile(dbPath, { flag: 'a+' })
       .then((articleDB) => {
@@ -132,7 +129,7 @@ module.exports = {
           console.error('No such article stored');
         } else {
           const printEmitter = new EventEmitter();
-          if (!dryRun) {
+          if (!config.dryRun) {
             const device = new escpos.USB();
             const printer = new escpos.Printer(device);
             return new Promise(function (resolve, reject) {
@@ -190,10 +187,10 @@ module.exports = {
               });
           }
           // check the rss feed erry minute
-          return checkFeed(articles, dbPath, config, dryRun).then(() => {
+          return checkFeed(articles, dbPath, config).then(() => {
             return new Promise((resolve, reject) => {
               const interval = setInterval(() => {
-                checkFeed(articles, dbPath, config, dryRun)
+                checkFeed(articles, dbPath, config)
                   .catch((e) => {
                     clearInterval(interval);
                     reject(e);
@@ -203,5 +200,6 @@ module.exports = {
           });
         }
       });
-  }
+  },
+  saveEmitter
 };
