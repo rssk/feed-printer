@@ -144,7 +144,6 @@ module.exports = {
                     Math.floor(config.printInterval * 60 * (Math.random() * 2 - 1) / 10);
 
                   setTimeout(() => {
-                    // const p = articles;
                     const timeConf = config.fromTimeAgo.split(' ');
                     const diffTime = moment().subtract(timeConf[0], timeConf[1]);
                     const articleIds = Object.keys(articles);
@@ -169,15 +168,14 @@ module.exports = {
                     if (article) {
                       console.log(`Printing article....`);
                       article.matches.forEach(match => {
-                        // printer.font('a').text(match);
+                        printer.font('a').text(match);
                         console.log(match);
                       });
-                      // printer.close(() => printEmitter.emit('print'));
-                      printEmitter.emit('print');
+                      printer.close(() => printEmitter.emit('print'));
                     } else {
                       printEmitter.emit('print');
                     }
-                  }, randPrintTime);
+                  }, randPrintTime * 1000);
                 };
                 printEmitter.on('print', () => {
                   // stack safety
