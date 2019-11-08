@@ -93,7 +93,7 @@ const checkFeed = (articles, dbPath, config) => {
       }, {}));
       console.log('Saving articles');
       saveEmitter.emit('saving');
-      return new Promise(resolve => setTimeout(resolve, 2000))
+      return new Promise(resolve => setTimeout(resolve, 5000))
         .then(() => {
           return writeFile(dbPath, JSON.stringify(articles, null, 2))
             .then(() => saveEmitter.emit('saved'));
