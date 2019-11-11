@@ -1,6 +1,6 @@
 {
   "name": "feed-printer",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Print google rss feeds to a printer",
   "main": "index.js",
   "scripts": {
