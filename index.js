@@ -43,7 +43,7 @@ const parsePage = (url, item, articles, config) => {
       title || [],
       content || []
     ).reduce((memo, match) => {
-      if (match.length < 110) {
+      if (match.length < 104) {
         if (match.match(/^['"“”‘’]|['"“”‘’]$/ig) && match.match(/^['"“”‘’]|['"“”‘’]$/ig).length === 1) {
           match = match.replace(/^['"“”‘’]|['"“”‘’]$/ig, '').trim();
           if (memo.every((elem) => { return stringSim.compareTwoStrings(elem, match) < 0.9; })) memo.push(match);
