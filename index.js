@@ -54,13 +54,6 @@ const parsePage = (url, item, articles, config) => {
       }
       return memo;
     }, []);
-    if (googleTitle && !matchArr.find((elem) => {
-      return elem.includes(googleTitle.replace(/[?.!:;,\n]/, ''));
-    }) &&
-    googleTitle.length < 110 && googleTitle.search(/[^a-zA-Z\d\s?.!:;,'"“”‘’$]/g) === -1
-    ) {
-      matchArr.push(googleTitle);
-    }
     // articles[item.id] = { article: item, matches: matchArr };
     return { url: item.link, id: item.id, matches: matchArr, date: item.isoDate };
   })
@@ -132,18 +125,18 @@ module.exports = {
           if (!config.dryRun) {
             const device = new escpos.USB();
             const printer = new escpos.Printer(device);
-            return new Promise(function (resolve, reject) {
-              device.open(() => {
-                resolve(printer);
-              });
-            })
-              .then((printer) => {
-                let printed = [];
-                const print = () => {
-                  const randPrintTime = config.printInterval * 60 +
-                    Math.floor(config.printInterval * 60 * (Math.random() * 2 - 1) / 10);
+            let printed = [];
+            const print = () => {
+              const randPrintTime = config.printInterval * 60 +
+              Math.floor(config.printInterval * 60 * (Math.random() * 2 - 1) / 10);
 
-                  setTimeout(() => {
+              setTimeout(() => {
+                new Promise(function (resolve, reject) {
+                  device.open(() => {
+                    resolve(printer);
+                  });
+                })
+                  .then((printer) => {
                     const timeConf = config.fromTimeAgo.split(' ');
                     const diffTime = moment().subtract(timeConf[0], timeConf[1]);
                     const articleIds = Object.keys(articles);
@@ -171,18 +164,19 @@ module.exports = {
                         printer.font('a').text(match);
                         console.log(match);
                       });
+                      printer.control('FF');
                       printer.close(() => printEmitter.emit('print'));
                     } else {
                       printEmitter.emit('print');
                     }
-                  }, randPrintTime * 1000);
-                };
-                printEmitter.on('print', () => {
-                  // stack safety
-                  process.nextTick(print);
-                });
-                print();
-              });
+                  });
+              }, randPrintTime * 1000);
+            };
+            printEmitter.on('print', () => {
+              // stack safety
+              process.nextTick(print);
+            });
+            print();
           }
           // check the rss feed erry minute
           return checkFeed(articles, dbPath, config).then(() => {
