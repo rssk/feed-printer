@@ -46,10 +46,10 @@ const parsePage = (url, item, articles, config) => {
       if (match.length < 104) {
         if (match.match(/^['"“”‘’]|['"“”‘’]$/ig) && match.match(/^['"“”‘’]|['"“”‘’]$/ig).length === 1) {
           match = match.replace(/^['"“”‘’]|['"“”‘’]$/ig, '').trim();
-          if (memo.every((elem) => { return stringSim.compareTwoStrings(elem, match) < 0.9; })) memo.push(match);
+          if (memo.every((elem) => { return stringSim.compareTwoStrings(elem, match) < 0.85; })) memo.push(match);
         } else {
           match = match.trim();
-          if (memo.every((elem) => { return stringSim.compareTwoStrings(elem, match) < 0.9; })) memo.push(match);
+          if (memo.every((elem) => { return stringSim.compareTwoStrings(elem, match) < 0.85; })) memo.push(match);
         }
       }
       return memo;
@@ -128,7 +128,7 @@ module.exports = {
             let printed = [];
             const print = () => {
               const randPrintTime = config.printInterval * 60 +
-              Math.floor(config.printInterval * 60 * (Math.random() * 2 - 1) / 10);
+              Math.floor(config.printInterval * 60 * (Math.random() * 2 - 1) / 5);
 
               setTimeout(() => {
                 new Promise(function (resolve, reject) {
