@@ -12,7 +12,7 @@ const defaultConf = require('./config.json');
 const escpos = require('escpos');
 const moment = require('moment');
 const EventEmitter = require('events');
-var stringSim = require('string-similarity');
+const stringSim = require('string-similarity');
 
 const saveEmitter = new EventEmitter();
 
@@ -38,18 +38,16 @@ const parsePage = (url, item, articles, config) => {
   ).then((article) => {
     const title = article.title.match(strictMatch) || article.title.match(coarseMatch);
     const content = article.content.match(strictMatch);
-
     const matchArr = _.union(
       title || [],
       content || []
     ).reduce((memo, match) => {
       if (match.length < 104) {
-        if (match.match(/^['"“”‘’]|['"“”‘’]$/ig) && match.match(/^['"“”‘’]|['"“”‘’]$/ig).length === 1) {
-          match = match.replace(/^['"“”‘’]|['"“”‘’]$/ig, '').trim();
-          if (memo.every((elem) => { return stringSim.compareTwoStrings(elem, match) < 0.85; })) memo.push(match);
-        } else {
-          match = match.trim();
-          if (memo.every((elem) => { return stringSim.compareTwoStrings(elem, match) < 0.85; })) memo.push(match);
+        match = match.replace(/^['"“”‘’(]|['"“”‘’)]$/ig, '').trim();
+        if (memo.every((elem) => {
+          return stringSim.compareTwoStrings(elem.toLowerCase(), match.toLowerCase()) < (config.matchTolerance || 0.85);
+        })) {
+          memo.push(match);
         }
       }
       return memo;
@@ -122,70 +120,96 @@ module.exports = {
           console.error('No such article stored');
         } else {
           const printEmitter = new EventEmitter();
-          if (!config.dryRun) {
-            const device = new escpos.USB();
-            const printer = new escpos.Printer(device);
-            let printed = [];
-            const print = () => {
-              const randPrintTime = config.printInterval * 60 +
-              Math.floor(config.printInterval * 60 * (Math.random() * 2 - 1) / 5);
+          let printer;
+          let device;
 
-              setTimeout(() => {
-                new Promise(function (resolve, reject) {
+          if (!config.dryRun) {
+            device = new escpos.USB();
+            printer = new escpos.Printer(device);
+          }
+
+          const printArticle = (article) => {
+            if (!config.dryRun) {
+              article.matches.forEach(match => {
+                printer.font('a').text(match);
+                console.log(match);
+              });
+              printer.control('FF');
+              printer.close(() => printEmitter.emit('print'));
+            } else {
+              article.matches.forEach(match => {
+                console.log(match);
+                printEmitter.emit('print');
+              });
+            }
+          };
+          let printed = [];
+          const print = () => {
+            const randPrintTime = config.printInterval * 60 +
+            Math.floor(config.printInterval * 60 * (Math.random() * 2 - 1) / 5);
+
+            setTimeout(() => {
+              new Promise(function (resolve, reject) {
+                if (!config.dryRun) {
                   device.open(() => {
                     resolve(printer);
                   });
-                })
-                  .then((printer) => {
-                    const timeConf = config.fromTimeAgo.split(' ');
-                    const diffTime = moment().subtract(timeConf[0], timeConf[1]);
-                    const articleIds = Object.keys(articles);
-                    console.log(articleIds.length);
-                    let i = 0;
-                    let article;
-                    if (articleIds.every(elem => printed.includes(elem))) printed = [];
-                    while (i < articleIds.length) {
-                      if (!printed.includes(articleIds[i]) &&
-                        articles[articleIds[i]].matches &&
-                        articles[articleIds[i]].matches.length !== 0 &&
-                        moment(articles[articleIds[i]].date).isAfter(diffTime)
-                      ) {
-                        article = articles[articleIds[i]];
-                        printed.push(articleIds[i]);
-                        break;
-                      } else {
-                        printed.push(articleIds[i]);
-                      }
-                      i += 1;
-                    }
-                    if (article) {
-                      console.log(`Printing article....`);
-                      article.matches.forEach(match => {
-                        printer.font('a').text(match);
-                        console.log(match);
-                      });
-                      printer.control('FF');
-                      printer.close(() => printEmitter.emit('print'));
+                } else {
+                  resolve();
+                }
+              })
+                .then((printer) => {
+                  const timeConf = config.fromTimeAgo.split(' ');
+                  const diffTime = moment().subtract(timeConf[0], timeConf[1]);
+                  const articleIds = Object.keys(articles);
+                  let i = 0;
+                  let article;
+                  if (articleIds.every(elem => printed.includes(elem)) && !config.noRepeat) printed = [];
+                  while (i < articleIds.length) {
+                    if (!printed.includes(articleIds[i]) &&
+                      articles[articleIds[i]].matches &&
+                      articles[articleIds[i]].matches.length !== 0 &&
+                      moment(articles[articleIds[i]].date).isAfter(diffTime)
+                    ) {
+                      article = articles[articleIds[i]];
+                      printed.push(articleIds[i]);
+                      break;
                     } else {
-                      printEmitter.emit('print');
+                      printed.push(articleIds[i]);
                     }
-                  });
-              }, randPrintTime * 1000);
-            };
-            printEmitter.on('print', () => {
-              // stack safety
-              process.nextTick(print);
-            });
-            print();
-          }
+                    i += 1;
+                  }
+                  if (article) {
+                    console.log(`Printing article....`);
+                    printArticle(article);
+                  } else {
+                    printEmitter.emit('print');
+                  }
+                });
+            }, randPrintTime * 1000);
+          };
+          printEmitter.on('print', () => {
+            // stack safety
+            process.nextTick(print);
+          });
+          print();
           // check the rss feed erry minute
           return checkFeed(articles, dbPath, config).then(() => {
             return new Promise((resolve, reject) => {
-              const interval = setInterval(() => {
+              setInterval(() => {
                 checkFeed(articles, dbPath, config)
                   .catch((e) => {
-                    clearInterval(interval);
-                    reject(e);
+                    console.error(`Feed Error: ${e}`);
+                  });
+              }, 60000);
+            });
+          }).catch((e) => {
+            console.error(`Initial Feed Error: ${e}`);
+            return new Promise((resolve, reject) => {
+              setInterval(() => {
+                checkFeed(articles, dbPath, config)
+                  .catch((e) => {
+                    console.error(`Feed Error: ${e}`);
                   });
               }, 60000);
             });
